@@ -1,0 +1,79 @@
+================================================================================
+file_tree_generator - REGISTRO DE BUGS CORREGIDOS
+================================================================================
+Última actualización: 2026-09-14
+Total de bugs: 2
+
+================================================================================
+ÍNDICE POR SECCIONES
+================================================================================
+1.  Filtrado de archivos/carpetas (.gitignore, exclusiones) ....... BUG 1
+2.  Validación de entrada del usuario (preguntas interactivas) .... BUG 2
+================================================================================
+
+================================================================================
+BUG 1 — La carpeta .git se colaba completa en el árbol
+================================================================================
+SÍNTOMA:
+  Al correr el programa contra un repositorio git real (kickback_fix, como
+  prueba), la carpeta .git apareció completa en el árbol generado: cientos
+  de archivos internos (objetos sueltos, refs, hooks), en vez de quedar
+  excluida como cualquier otra carpeta de git.
+
+CAUSA:
+  El filtrado usa `ignore::gitignore::Gitignore`, que es solo el comparador
+  de patrones de la crate — compara rutas contra las reglas del archivo
+  `.gitignore` que se le pasó, nada más. No tiene ningún conocimiento
+  especial de `.git`; esa exclusión automática vive en el iterador de más
+  alto nivel de la misma crate (`ignore::WalkBuilder`), que no se estaba
+  usando. Como nadie declara `.git` dentro de su propio `.gitignore` (git
+  nunca necesita que se lo digan, se excluye a sí mismo por diseño de la
+  herramienta), la carpeta pasó el filtro sin ningún obstáculo.
+
+SOLUCIÓN:
+  Se agregó una exclusión explícita en el código: cualquier entrada
+  llamada exactamente `.git` se descarta antes de aplicar el resto de las
+  reglas, sin depender de que el usuario la declare en ningún archivo.
+  Replica el mismo comportamiento que tiene git consigo mismo.
+
+RESULTADO:
+  Probado de nuevo contra kickback_fix — `.git` ya no aparece en el árbol,
+  sin necesitar ninguna línea adicional en su `.gitignore`.
+
+ARCHIVO: src/generator/tree.rs (build, filtro de entradas)
+ESTADO: RESUELTO
+
+================================================================================
+BUG 2 — El límite de profundidad aceptaba valores inválidos en silencio
+================================================================================
+SÍNTOMA:
+  En la pregunta [3/3] (límite de profundidad), escribir "-1" (o cualquier
+  texto que no fuera un número) no mostraba ningún error — el programa
+  seguía de largo y generaba el árbol como si hubieras dejado el campo
+  vacío (sin límite), en vez de rechazar la entrada.
+
+CAUSA:
+  La conversión de texto a número usaba `input.parse::<u32>().ok()`: si el
+  `parse` fallaba (como pasa siempre con un número negativo, porque un
+  `u32` no puede representarlo, o con texto no numérico), `.ok()`
+  convertía ese error en `None` en silencio — y `None` es exactamente el
+  mismo valor que significa "sin límite". El fallo de conversión y la
+  elección real del usuario de "sin límite" quedaban indistinguibles.
+
+SOLUCIÓN:
+  Se separó la pregunta en su propia función con un loop de validación,
+  igual al que ya usaban las otras dos preguntas (sí/no). Ahora: campo
+  vacío -> sin límite; un número entero positivo -> ese límite; cualquier
+  otra cosa (negativos, `0`, texto, símbolos) -> "Opción inválida, intenta
+  de nuevo." y vuelve a preguntar, sin avanzar.
+
+RESULTADO:
+  Probado con `0`, `-1`, `a`, `d`, `\` — los cinco casos repreguntan
+  correctamente. El campo vacío sí avanza como "sin límite".
+
+ARCHIVO: src/generator/ui.rs (ask_depth)
+ESTADO: RESUELTO
+
+================================================================================
+FIN DEL REGISTRO
+================================================================================
